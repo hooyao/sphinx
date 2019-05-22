@@ -1,0 +1,262 @@
+import io
+import math
+import os
+from errno import EEXIST
+from random import randint
+from os import path
+
+size_1k = 1024  # 8K
+#
+for i in range(100000):
+    file_name = str(i) + ".xml"
+    file_size_in_k = randint(0, 10000)
+    with open('test_files/' + file_name, 'wb') as fout:
+        fout.write(os.urandom(file_size_in_k))
+
+# with tarfile.open("combined.tar.gz", "r:gz") as tar:
+#     for info in tar:
+#         print(info)
+import zlib
+
+# target_dir = "./2M"
+# all_files = [f for f in os.listdir(target_dir) if os.path.isfile(os.path.join(target_dir, f))]
+# print(all_files)
+
+
+gz_head_magic = b'\x1f\x8b\x08'
+
+# for file_name in all_files:
+#     with open(os.path.join(target_dir,file_name), 'rb') as f:
+#         a = f.read(3)
+#         if gz_head_magic == a:
+#             print(f'{file_name} is the header')
+
+# decomp = zlib.decompressobj(47)
+file_name_offset = 0
+file_name_len = 100
+
+mode_offset = file_name_offset + file_name_len
+mode_len = 8
+
+uid_offset = mode_offset + mode_len
+uid_len = 8
+
+gid_offset = uid_offset + uid_len
+gid_len = 8
+
+size_offset = gid_offset + gid_len
+size_len = 12
+
+mtime_offset = size_offset + size_len
+mtime_len = 12
+
+checksum_offset = mode_offset + mtime_len
+checksum_len = 8
+
+# with tarfile.open(target_dir + "/test_2M.aaa", "r:gz")  as f:
+#    mems = f.getmembers()
+#    print(mems)
+
+# with open(target_dir + "/test_2M.aaa", "rb") as f:
+#     data = bytearray()
+#     idx = 0
+#     while True:
+#         buf = f.read(64 * 1024)
+#         if len(buf) == 0:
+#             break
+#         try:
+#             uc = decomp.scan_next(buf)
+#             data.extend(uc)
+#             header = data[idx:idx + 512]
+#             file_name = header[file_name_offset:file_name_offset + file_name_len]
+#             mode = header[mode_offset:mode_offset + mode_len]
+#             size = header[size_offset:size_offset + size_len]
+#
+#             file_like_object = io.BytesIO(data)
+#             with tarfile.open(fileobj=file_like_object) as tar:
+#                 last_file = None
+#                 try:
+#                     while True:
+#                         last_file = tar.next()
+#                 except tarfile.ReadError:
+#                     print("reach the end")
+#
+#                 last_file_data = data[last_file.offset:]
+#                 print(last_file)
+#                 #mems = tar.getmembers()
+#                 #print(mems)
+#             print(file_name)
+#             print(size)
+#         # TarInfo.frombuf()
+#         except zlib.error:
+#             print("error")
+
+# <100s8s8s8s12s12s8sc<100s6s2s<32s<32s8s8s<155s
+import struct
+import tarfile
+
+
+def parse_tar_header(buf):
+    header = dict()
+    tar_header = struct.unpack('=100s8s8s8s12s12s8sc100s6s2s32s32s8s8s155s12x', buf)
+    header['name'] = tar_header[0]
+    header['mode'] = tar_header[1]
+    header['uid'] = tar_header[2]
+    header['gid'] = tar_header[3]
+    header['size'] = tarfile.nti(tar_header[4])
+    header['mtime'] = tar_header[5]
+    header['chksum'] = tarfile.nti(tar_header[6])
+    header['typeflag'] = tar_header[7]
+    header['linkname'] = tar_header[8]
+    header['magic'] = tar_header[9]
+    header['version'] = tar_header[10]
+    header['uname'] = tar_header[11]
+    header['gname'] = tar_header[12]
+    header['devmajor'] = tar_header[13]
+    header['devminor'] = tar_header[14]
+    header['prefix'] = tar_header[15]
+
+    if header['chksum'] not in tarfile.calc_chksums(buf):
+        raise tarfile.InvalidHeaderError("chksum not match")
+    return header
+
+
+class ConcatenatedFiles(object):
+    def __init__(self, file_objects):
+        self.fds = list(reversed(file_objects))
+
+    def read(self, size=None):
+        remaining = size
+        data = bytearray()
+        while self.fds and (remaining > 0 or remaining is None):
+            data_read = self.fds[-1].read(remaining or -1)
+            if len(data_read) < remaining or remaining is None:  # exhausted file
+                self.fds.pop()
+            if remaining is not None:
+                remaining -= len(data_read)
+            data.extend(data_read)
+        return data
+
+
+# with open("test.tar", "rb") as f:
+#     buf = f.read(512)
+#
+#     header = parse_tar_header(buf)
+#
+#     buf2 = f.read(512)
+#
+#     header2 = parse_tar_header(buf2)
+#
+#     buf2_data = f.read(header2['size'])
+#
+#     buf3 = f.read(512)
+#
+#     header3 = parse_tar_header(buf3)
+#
+#     buf4 = f.read(512)
+#
+#     header4 = parse_tar_header(buf4)
+#     print(header2)
+
+# with open(target_dir + "/test_2M.aaa", "rb") as f:
+#     data = bytearray()
+#     idx = 0
+#     while True:
+#         buf = f.read(64 * 1024)
+#         if len(buf) == 0:
+#             break
+
+DEFAULT_TRUNK_SIZE = 64 * 1024
+TAR_HEAD_SIZE = 512
+TAR_BLOCK_SIZE = 512
+
+idx = 0
+tar_path = "./2M/test_a_b"
+with open(tar_path, "rb") as f:
+    data = bytearray()
+    file_size = path.getsize(tar_path)
+    decomp_obj = zlib.decompressobj(47)
+    data_to_skip = 0
+    total_read = 0
+    try:
+        while True:
+            # decomp_buf = bytearray()
+            buf = f.read(DEFAULT_TRUNK_SIZE)
+            total_read += DEFAULT_TRUNK_SIZE
+            if len(buf) == 0:
+                # break
+                print("nothing to read")
+            try:
+                decomp_buf = decomp_obj.decompress(buf)
+            except zlib.error:
+                # self.lookup[lookup_key] = False
+                # return False
+                raise Exception("GZ decompress fail.")
+            data.extend(decomp_buf)
+            if data_to_skip > len(data):
+                continue
+            elif data_to_skip > 0:
+                data = data[data_to_skip:]
+            reach_end = False
+            while not reach_end:
+                if len(data) >= TAR_HEAD_SIZE:
+                    if idx == 10004:
+                        print("stop")
+                        tar_file_object = io.BytesIO(data)
+                        with tarfile.open(fileobj=tar_file_object) as tar:
+                            first_file = tar.next()
+                            print(first_file)
+                    header = parse_tar_header(data[0:TAR_HEAD_SIZE])
+
+                    idx += 1
+                    pl_size = math.ceil(header['size'] / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE
+                    if TAR_HEAD_SIZE + pl_size < len(data):
+                        data = data[TAR_HEAD_SIZE + pl_size:]
+                    else:
+                        data_to_skip = TAR_HEAD_SIZE + pl_size - len(data)
+                        data = bytearray()
+                        reach_end = True
+                else:
+                    data_to_skip = 0
+                    reach_end = True
+    except tarfile.InvalidHeaderError as err:
+        if not any(data):
+            print("reach file end")
+        else:
+            raise Exception("file corrupted.")
+    # idx = idx + 512
+    # size = header['size']
+    # idx = idx + size
+    #
+    # if len(buf) == 0:
+    #     break
+    # try:
+    #     data.extend(decomp.decompress(buf))
+    # except zlib.error:
+    #     pass
+    #
+    # idx = 0
+    # try:
+    #     while True:
+    #         header = parse_tar_header(data[idx:idx + 512])
+    #         idx = idx + 512
+    #         size = header['size']
+    #         idx = idx + size
+    # except tarfile.InvalidHeaderError as e:
+    #     print(e)
+    # except tarfile.HeaderError as e:
+    #     print(e)
+    print(len(data))
+
+from errno import EEXIST
+
+
+def symlink_force(target, link_name):
+    try:
+        os.symlink(target, link_name)
+    except OSError as e:
+        if e.errno == EEXIST:
+            os.remove(link_name)
+            os.symlink(target, link_name)
+        else:
+            raise e
