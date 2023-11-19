@@ -6,3 +6,6 @@ This simple toolkits solves bizarre problems.
 This program works better on Intel zlib. It is battle tested. It has sorted over 20T data. 
 This program's time complexity is O(n!), however it only needs to find the first tar header to decide if 2 split achieves are connected.
 Thus for a pack of small files, this program is blazing fast.
+
+## Water Mark Remover
+[Water Mark Remover](files/water_mark_remover.py) remove the `EMC` artifact from pdf page, which is usually the watermark.
